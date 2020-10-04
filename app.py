@@ -80,11 +80,26 @@ class ReverseProxyRequestHandler(http.server.BaseHTTPRequestHandler):
         self.headers_fill(hh)
         self.headers_set_proxy_host(hh)
 
-        r = requests.request(
-            method,
-            headers=hh,
-            url=self.PROXY_URL + self.path,
-        )
+        payload = None
+        if 'Content-Length' in self.headers:
+            payload = self.rfile.read(int(self.headers['Content-Length']))
+
+        try:
+            r = requests.request(
+                method,
+                data=payload,
+                headers=hh,
+                timeout=self.PROXY_TIMEOUT,
+                url=self.PROXY_URL + self.path,
+            )
+
+        except requests.exceptions.RequestException as e:
+            self.log_error("%s", e)
+            self.send_error(
+                502,
+                "Bad Gateway: The proxy server received an invalid response from an upstream server")
+            return
+
         self.send_response(r.status_code)
 
         for k,v in r.headers.items():
@@ -92,6 +107,7 @@ class ReverseProxyRequestHandler(http.server.BaseHTTPRequestHandler):
 
         self.end_headers()
         self.wfile.write(r.content)
+        
 
 
 def parse_args():
@@ -109,6 +125,11 @@ def parse_args():
         'port',
         type=int,
         help='proxy server port')
+    parser.add_argument(
+        '--timeout',
+        type=int,
+        default=60000,
+        help='proxy server request timeout in milliseconds')
     parser.add_argument(
         '--bind-host',
         default="localhost",
@@ -131,6 +152,7 @@ def main():
         conf.port)
 
     ReverseProxyRequestHandler.PROXY_HOST = conf.host
+    ReverseProxyRequestHandler.PROXY_TIMEOUT = float(conf.timeout) / 1000
     ReverseProxyRequestHandler.RATE = RateLimiter(1.0)
 
     serv = http.server.ThreadingHTTPServer(
