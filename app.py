@@ -3,14 +3,42 @@
 
 import argparse
 import http.server
+import random # TODO REMOVE it
+import time # TODO REMOVE it
+import sys
+import threading
 
 import requests
+
+
+class RateLimiter:
+    def __init__(self, secs):
+        self.__secs = float(secs)
+        self.__mutex = threading.Lock()
+        self.__last_request = None
+
+    def limit(self, r_id):
+        self.__mutex.acquire()
+        print("{}\t{}\t{}".format(time.ctime(), r_id, "acquire"))
+        curr_request = time.time()
+        if self.__last_request is not None:
+            secs = curr_request - self.__last_request
+
+            if secs < self.__secs:
+                print("{}\t{}\t{}".format(time.ctime(), r_id, "secs="+str(secs)))
+                time.sleep(self.__secs - secs)
+
+        self.__last_request = curr_request
+        print("{}\t{}\t{}".format(time.ctime(), r_id, "release"))
+        self.__mutex.release()
+
 
 
 class ReverseProxyRequestHandler(http.server.BaseHTTPRequestHandler):
 
     PROXY_URL = ""
     PROXY_HOST = ""
+    RATE = None
 
     def do_HEAD(self):
         self.proxy("HEAD")
@@ -18,15 +46,38 @@ class ReverseProxyRequestHandler(http.server.BaseHTTPRequestHandler):
     def do_GET(self):
         self.proxy("GET")
 
+    def headers_fill(self, headers):
+
+        for k,v in self.headers.items():
+            headers[k] = v
+
+    def headers_set_proxy_host(self, headers):
+
+        for k in dict(headers).keys():
+            if k.lower() == "host":
+                del headers[k]
+
+        headers['Host'] = self.PROXY_HOST
 
     def proxy(self, method):
 
-        hh = {k:v for k,v in self.headers.items()}
-        for k, v in dict(hh).items():
-            if k.lower() == "host":
-                del hh[k]
+        r_id = random.randint(1000000, 10000000)
 
-        hh['Host'] = self.PROXY_HOST
+        print("{}\t{}\t{}".format(time.ctime(), r_id, "HELLO"))
+        self.RATE.limit(r_id)
+
+        print("{}\t{}\t{}".format(time.ctime(), r_id, "REQUEST"))
+
+        x = random.randint(3, 15)
+        print("{}\t{}\t{}".format(time.ctime(), r_id, "Sleep for " + str(x)))
+        time.sleep(x)
+
+        # TODO timeout
+        # known issue HEADERS with the same name will be taken only once
+        
+        hh=dict()
+        self.headers_fill(hh)
+        self.headers_set_proxy_host(hh)
 
         r = requests.request(
             method,
@@ -35,16 +86,15 @@ class ReverseProxyRequestHandler(http.server.BaseHTTPRequestHandler):
         )
         self.send_response(r.status_code)
 
-        if "Server" in self.headers:
-            del self.headers["Server"]
-
-        if "Date" in self.headers:
-            del self.headers["Date"]
+        #if "Server" in self.headers:
+        #    del self.headers["Server"]
+        #
+        #if "Date" in self.headers:
+        #   del self.headers["Date"]
 
         for k,v in r.headers.items():
             self.send_header(k, v)
 
-        
         self.end_headers()
         self.wfile.write(r.content)
 
@@ -86,6 +136,7 @@ def main():
         conf.port)
 
     ReverseProxyRequestHandler.PROXY_HOST = conf.host
+    ReverseProxyRequestHandler.RATE = RateLimiter(1.0)
 
     serv = http.server.ThreadingHTTPServer(
         (conf.bind_host, int(conf.bind_port)),
