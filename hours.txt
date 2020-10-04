@@ -1,0 +1,5 @@
+TIMES
+ - Reading docs 40 mins
+ - Developing 1 hour 40 mins
+ - Testing 20 mins
+ - Writing readme 5 mins
