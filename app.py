@@ -3,9 +3,7 @@
 
 import argparse
 import http.server
-import random # TODO REMOVE it
-import time # TODO REMOVE it
-import sys
+import time
 import threading
 
 import requests
@@ -17,24 +15,24 @@ class RateLimiter:
         self.__mutex = threading.Lock()
         self.__last_request = None
 
-    def limit(self, r_id):
+    def limit(self):
         self.__mutex.acquire()
-        print("{}\t{}\t{}".format(time.ctime(), r_id, "acquire"))
         curr_request = time.time()
         if self.__last_request is not None:
             secs = curr_request - self.__last_request
 
             if secs < self.__secs:
-                print("{}\t{}\t{}".format(time.ctime(), r_id, "secs="+str(secs)))
                 time.sleep(self.__secs - secs)
 
         self.__last_request = curr_request
-        print("{}\t{}\t{}".format(time.ctime(), r_id, "release"))
         self.__mutex.release()
 
 
 
 class ReverseProxyRequestHandler(http.server.BaseHTTPRequestHandler):
+    """known issue:
+        - HEADERS with the same name will be taken only once
+        - extra "Server" and "Date" headers in response """
 
     PROXY_URL = ""
     PROXY_HOST = ""
@@ -45,6 +43,21 @@ class ReverseProxyRequestHandler(http.server.BaseHTTPRequestHandler):
 
     def do_GET(self):
         self.proxy("GET")
+
+    def do_OPTIONS(self):
+        self.proxy("OPTIONS")
+    
+    def do_POST(self):
+        self.proxy("POST")
+    
+    def do_PUT(self):
+        self.proxy("PUT")
+    
+    def do_PATCH(self):
+        self.proxy("PATCH")
+    
+    def do_DELETE(self):
+        self.proxy("DELETE")
 
     def headers_fill(self, headers):
 
@@ -61,19 +74,7 @@ class ReverseProxyRequestHandler(http.server.BaseHTTPRequestHandler):
 
     def proxy(self, method):
 
-        r_id = random.randint(1000000, 10000000)
-
-        print("{}\t{}\t{}".format(time.ctime(), r_id, "HELLO"))
-        self.RATE.limit(r_id)
-
-        print("{}\t{}\t{}".format(time.ctime(), r_id, "REQUEST"))
-
-        x = random.randint(3, 15)
-        print("{}\t{}\t{}".format(time.ctime(), r_id, "Sleep for " + str(x)))
-        time.sleep(x)
-
-        # TODO timeout
-        # known issue HEADERS with the same name will be taken only once
+        self.RATE.limit()
         
         hh=dict()
         self.headers_fill(hh)
@@ -85,12 +86,6 @@ class ReverseProxyRequestHandler(http.server.BaseHTTPRequestHandler):
             url=self.PROXY_URL + self.path,
         )
         self.send_response(r.status_code)
-
-        #if "Server" in self.headers:
-        #    del self.headers["Server"]
-        #
-        #if "Date" in self.headers:
-        #   del self.headers["Date"]
 
         for k,v in r.headers.items():
             self.send_header(k, v)
