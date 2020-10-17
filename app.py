@@ -16,17 +16,15 @@ class RateLimiter:
         self.__last_request = None
 
     def limit(self):
-        self.__mutex.acquire()
-        curr_request = time.time()
-        if self.__last_request is not None:
-            secs = curr_request - self.__last_request
+        with self.__mutex:
+            curr_request = time.time()
+            if self.__last_request is not None:
+                secs = curr_request - self.__last_request
 
-            if secs < self.__secs:
-                time.sleep(self.__secs - secs)
+                if secs < self.__secs:
+                    time.sleep(self.__secs - secs)
 
-        self.__last_request = curr_request
-        self.__mutex.release()
-
+            self.__last_request = curr_request
 
 
 class ReverseProxyRequestHandler(http.server.BaseHTTPRequestHandler):
